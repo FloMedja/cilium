@@ -535,10 +535,10 @@ func (ds *PolicyTestSuite) TestMergeL7Policy(c *C) {
 }
 
 func (ds *PolicyTestSuite) TestRuleWithNoEndpointSelector(c *C) {
-	apiRule1 := api.Rule{
-		Ingress: []api.IngressRule{
+	apiRule1 := v2.Rule{
+		Ingress: []v2.IngressRule{
 			{
-				FromCIDR: []api.CIDR{
+				FromCIDR: []v2.CIDR{
 					"10.0.1.0/24",
 					"192.168.2.0",
 					"10.0.3.1",
@@ -547,14 +547,14 @@ func (ds *PolicyTestSuite) TestRuleWithNoEndpointSelector(c *C) {
 				},
 			},
 		},
-		Egress: []api.EgressRule{
+		Egress: []v2.EgressRule{
 			{
-				ToCIDR: []api.CIDR{
+				ToCIDR: []v2.CIDR{
 					"10.1.0.0/16",
 					"2001:dbf::/64",
 				},
 			}, {
-				ToCIDRSet: []api.CIDRRule{{Cidr: api.CIDR("10.0.0.0/8"), ExceptCIDRs: []api.CIDR{"10.96.0.0/12"}}},
+				ToCIDRSet: []v2.CIDRRule{{Cidr: v2.CIDR("10.0.0.0/8"), ExceptCIDRs: []v2.CIDR{"10.96.0.0/12"}}},
 			},
 		},
 	}
@@ -566,7 +566,6 @@ func (ds *PolicyTestSuite) TestRuleWithNoEndpointSelector(c *C) {
 func (ds *PolicyTestSuite) TestL3Policy(c *C) {
 	apiRule1 := v2.Rule{
 		EndpointSelector: v2.NewESFromLabels(labels.ParseSelectLabel("bar")),
-
 		Ingress: []v2.IngressRule{
 			{
 				FromCIDR: []v2.CIDR{
@@ -641,6 +640,7 @@ func (ds *PolicyTestSuite) TestL3Policy(c *C) {
 	// Test CIDRRule with no provided CIDR or ExceptionCIDR.
 	// Should fail as CIDR is required.
 	err = v2.Rule{
+		EndpointSelector: v2.NewESFromLabels(labels.ParseSelectLabel("bar")),
 		Ingress: []v2.IngressRule{{
 			FromCIDRSet: []v2.CIDRRule{{Cidr: "", ExceptCIDRs: nil}},
 		}},
