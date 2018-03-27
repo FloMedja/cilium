@@ -19,13 +19,10 @@ import (
 )
 
 // Rule is a policy rule which must be applied to all endpoints which match the
-// labels contained in the endpointSelector
+// labels contained in the identitySelector.
 //
 // Each rule is split into an ingress section which contains all rules
-// applicable at ingress, and an egress section applicable at egress. For rule
-// types such as `L4Rule` and `CIDR` which can be applied at both ingress and
-// egress, both ingress and egress side have to either specifically allow the
-// connection or one side has to be omitted.
+// applicable at ingress, and an egress section applicable at egress.
 //
 // Either ingress, egress, or both can be provided. If both ingress and egress
 // are omitted, the rule has no effect.
@@ -62,47 +59,201 @@ type Rule struct {
 	Description string `json:"description,omitempty"`
 }
 
+// IngressRule contains all rule types which can be applied at ingress,
+// i.e. network traffic that originates outside of the endpoint and
+// is entering the endpoint selected by the identitySelector.
+//
+// - All members of this structure are optional. If omitted or empty, the
+//   member will have no effect on the rule.
+//
+// - If multiple members are set, all of them need to match in order for
+//   the rule to take effect. The exception to this rule is FromRequires field;
+//   the effects of any Requires field in any rule will apply to all other
+//   rules as well.
 type IngressRule struct {
+	// FromIdentities is a list of identities, previously known as endpoints,
+	// identified by an IdentitySelector which are allowed to communicate with
+	// the endpoint subject to the rule.
+	//
+	// Example:
+	// Any endpoint with the label "role=backend" can be consumed by any
+	// endpoint carrying the label "role=frontend".
+	//
+	// +optional
 	FromIdentities *IdentityRule `json:"fromIdentities,omitempty"`
 
+	// FromRequires is a list of additional constraints which must be met
+	// in order for the selected endpoints to be reachable. These additional
+	// constraints do no by itself grant access privileges and must always be
+	// accompanied with at least one matching FromEndpoints.
+	//
+	// Example:
+	// Any Endpoint with the label "team=A" requires consuming endpoint
+	// to also carry the label "team=A".
+	//
+	// +optional
 	FromRequires *IdentityRequirement `json:"fromRequires,omitempty"`
 
+	// FromCIDRs is a list of IP blocks which the endpoint subject to the
+	// rule is allowed to receive connections from in addition to FromEndpoints,
+	// along with a list of subnets contained within their corresponding IP
+	// block from which traffic should not be allowed.
+	// This will match on the source IP address of incoming connections.
+	//
+	// Example:
+	// Any endpoint with the label "app=my-legacy-pet" is allowed to receive
+	// connections from 10.0.0.0/8 except from IPs in subnet 10.96.0.0/12.
+	//
+	// +optional
 	FromCIDRs *CIDRRule `json:"fromCIDR,omitempty"`
 
+	// FromEntities is a list of special entities which the endpoint subject
+	// to the rule is allowed to receive connections from. Supported entities
+	// are `world` and `host`.
+	//
+	// +optional
 	FromEntities *EntityRule `json:"fromEntities,omitempty"`
 }
 
+// EgressRule contains all rule types which can be applied at egress, i.e.
+// network traffic that originates inside the endpoint and exits the endpoint
+// selected by the endpointSelector.
+//
+// - All members of this structure are optional. If omitted or empty, the
+//   member will have no effect on the rule.
 type EgressRule struct {
+	// ToIdentities is a list of endpoints identified by an identitySelector to
+	// which the endpoints subject to the rule are allowed to communicate.
+	//
+	// Example:
+	// Any endpoint with the label "role=frontend" can communicate with any
+	// endpoint carrying the label "role=backend".
+	//
+	// +optional
 	ToIdentities *IdentityRule `json:"toIdentities,omitempty"`
 
+	// ToRequires is a list of additional constraints which must be met
+	// in order for the selected endpoints to be able to connect to other
+	// endpoints. These additional constraints do no by itself grant access
+	// privileges and must always be accompanied with at least one matching
+	// ToEndpoints.
+	//
+	// Example:
+	// Any Endpoint with the label "team=A" requires any endpoint to which it
+	// communicates to also carry the label "team=A".
+	//
+	// +optional
 	ToRequires *IdentityRequirement `json:"toRequires,omitempty"`
 
+	// ToCIDRs is a list of IP blocks which the endpoint subject to the rule
+	// is allowed to initiate connections. Only connections destined for
+	// outside of the cluster and not targeting the host will be subject
+	// to CIDR rules. This will match on the destination IP address of
+	// outgoing connections.
+	//
+	// Example:
+	// Any endpoint with the label "app=database-proxy" is allowed to
+	// initiate connections to 10.2.3.0/24
+	//
+	// +optional
 	ToCIDRs *CIDRRule `json:"toCIDR,omitempty"`
 
+	// ToEntities is a list of special entities to which the endpoint subject
+	// to the rule is allowed to initiate connections. Supported entities are
+	// `world` and `host`
+	//
+	// +optional
 	ToEntities *EntityRule `json:"toEntities,omitempty"`
 
+	// ToServices is a list of services to which the endpoint subject
+	// to the rule is allowed to initiate connections.
+	//
+	// Example:
+	// Any endpoint with the label "app=backend-app" is allowed to
+	// initiate connections to all cidrs backing the "external-service" service
+	// + optional
 	ToServices *ServiceRule `json:"toServices,omitempty"`
 }
 
+// IdentityRule is a rule that specifies an identitySelector in a form of
+// matchLabels and matchExpressions that are allowed to communicate. If toPorts
+// is specified the traffic will be filtered accordingly the given PortRules.
 type IdentityRule struct {
+	// IdentitySelector is the selector to or from which the traffic will be
+	// allowed.
 	IdentitySelector IdentitySelector `json:"identitySelector"`
-	ToPorts          *PortRule        `json:"toPorts,omitempty"`
+
+	// ToPorts is a list of destination ports identified by port number and
+	// protocol which the endpoint subject to the rule is allowed to
+	// receive connections on. If empty, all ports will be allowed.
+	//
+	// Example:
+	// Any endpoint with the label "app=httpd" can only accept incoming
+	// connections on port 80/tcp.
+	//
+	// +optional
+	ToPorts *PortRule `json:"toPorts,omitempty"`
 }
 
+// IdentityRequirement is a list of additional constraints which must be met
+// in order for the selected endpoints to be reachable. These additional
+// constraints do no by itself grant access privileges and must always be
+// accompanied with at least one matching FromEndpoints.
 type IdentityRequirement struct {
+	// IdentitySelector is the selector to or from which the traffic will be
+	// allowed.
 	IdentitySelector []IdentitySelector `json:"anyOf"`
 }
 
+// CIDRRule is a rule that specifies a CIDR prefix to/from which outside
+// communication is allowed, along with an optional list of subnets within that
+// CIDR prefix to/from which outside communication is not allowed.
 type CIDRRule struct {
-	CIDR        []CIDR    `json:"anyOf"`
-	ExceptCIDRs []CIDR    `json:"except,omitempty"`
-	Generated   bool      `json:"-"`
-	ToPorts     *PortRule `json:"toPorts,omitempty"`
+	// CIDR is a CIDR prefix / IP Block.
+	CIDR []CIDR `json:"anyOf"`
+
+	// ExceptCIDRs is a list of IP blocks which the endpoint subject to the rule
+	// is not allowed to initiate connections to. These CIDR prefixes should be
+	// contained within Cidr. These exceptions are only applied to the CIDR in
+	// this CIDRRule, and do not apply to any other CIDR prefixes in any other
+	// CIDRRules.
+	//
+	// +optional
+	ExceptCIDRs []CIDR `json:"except,omitempty"`
+
+	// ToPorts is a list of destination ports identified by port number and
+	// protocol which the endpoint subject to the rule is allowed to
+	// receive connections on. If empty, all ports will be allowed.
+	//
+	// Example:
+	// Any endpoint with the label "app=httpd" can only accept incoming
+	// connections on port 80/tcp.
+	//
+	// +optional
+	ToPorts *PortRule `json:"toPorts,omitempty"`
+
+	// Generated indicates whether the rule was generated based on other rules
+	// or provided by user
+	Generated bool `json:"-"`
 }
 
+// EntityRule is a rule that specifies a list of entities to/from which
+// communication is allowed.
 type EntityRule struct {
-	Entities []Entity  `json:"anyOf"`
-	ToPorts  *PortRule `json:"toPorts,omitempty"`
+	// Entities is a list of special entities which the endpoint subject to the rule
+	// is allowed to receive connections from.
+	Entities []Entity `json:"anyOf"`
+
+	// ToPorts is a list of destination ports identified by port number and
+	// protocol which the endpoint subject to the rule is allowed to
+	// receive connections on. If empty, all ports will be allowed.
+	//
+	// Example:
+	// Any endpoint with the label "app=httpd" can only accept incoming
+	// connections on port 80/tcp.
+	//
+	// +optional
+	ToPorts *PortRule `json:"toPorts,omitempty"`
 }
 
 // K8sServiceNamespace is an abstraction for the k8s service + namespace types.
@@ -117,12 +268,29 @@ type K8sServiceSelectorNamespace struct {
 	Namespace string          `json:"namespace,omitempty"`
 }
 
+// ServiceRule is a rule that allows to select a service by its namespace
+// and name, or by a label selector.
 type ServiceRule struct {
 	// K8sServiceSelector selects services by k8s labels and namespace
+	//
+	// +optional
 	K8sServiceSelector *K8sServiceSelectorNamespace `json:"k8sServiceSelector,omitempty"`
-	// K8sService selects service by name and namespace pair
+
+	// K8sService selects service by name and namespace pair.
+	//
+	// +optional
 	K8sService *K8sServiceNamespace `json:"k8sService,omitempty"`
-	ToPorts    *PortRule            `json:"toPorts,omitempty"`
+
+	// ToPorts is a list of destination ports identified by port number and
+	// protocol which the endpoint subject to the rule is allowed to
+	// receive connections on. If empty, all ports will be allowed.
+	//
+	// Example:
+	// Any endpoint with the label "app=httpd" can only accept incoming
+	// connections on port 80/tcp.
+	//
+	// +optional
+	ToPorts *PortRule `json:"toPorts,omitempty"`
 }
 
 // PortProtocol specifies an L4 port with an optional transport protocol
@@ -181,12 +349,13 @@ type L7Rules struct {
 	Kafka []PortRuleKafka `json:"kafka,omitempty"`
 }
 
+// PortRules is a slice of PortRule.
 type PortRules []PortRule
 
 // ServiceSelector is a label selector for k8s services
 type ServiceSelector IdentitySelector
 
-// Entities specifies the class of receiver/sender endpoints that do not have individual identities.
+// Entity specifies the class of receiver/sender endpoints that do not have individual identities.
 // Entities are used to describe "outside of cluster", "host", etc.
 type Entity string
 
